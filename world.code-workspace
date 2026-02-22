@@ -1,0 +1,33 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "Game World"
+    },
+    {
+      "path": "../xrift-docs",
+      "name": "xrift-docs"
+    },
+    {
+      "path": "../xrift-world-components",
+      "name": "xrift-world-components"
+    },
+    {
+      "path": "../xrift-world-template",
+      "name": "xrift-world-templates"
+    },
+    {
+      "name": "== root ==",
+      "path": ".."
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/dist": true
+    },
+    "chat.tools.terminal.autoApprove": {
+      "uvx": true
+    }
+  }
+}
