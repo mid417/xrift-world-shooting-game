@@ -1,0 +1,600 @@
+import { useRef, useState } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { Text } from '@react-three/drei'
+import * as THREE from 'three'
+import { useInstanceState, useUsers, Interactable } from '@xrift/world-components'
+import type { GameState, UIState, ScoreEntry } from './types'
+import { addBulletColumn, removeOuterBulletColumn, getBulletXOffsets } from './bulletPattern'
+import { GameUI } from './GameUI'
+
+// ゲーム定数
+const GAME_CONFIG = {
+  SPAWN_DISTANCE: 25,         // 敵・アイテムのスポーン距離
+  MAX_OBJECT_DISTANCE: 30,    // オブジェクトの最大有効距離
+  PLAYER_SPEED: 5.0,
+  BULLET_SPEED: 15,
+  ENEMY_SPEED: 2.4,           // 敵の基本移動速度
+  ITEM_SPEED: 1.8,            // アイテムの移動速度
+  SHOT_INTERVAL: 0.3,
+  INITIAL_HP: 5,
+  GAME_DURATION: 120,
+  OBJECT_Y: 0.4,
+  COLLISION_DISTANCE: 0.6,     // 衝突判定距離
+  PASS_THROUGH_THRESHOLD: 3,   // 通り過ぎ判定距離
+  // InstancedMesh用の最大インスタンス数
+  MAX_BULLETS: 200,
+  MAX_ENEMIES: 100,
+  MAX_ITEMS_PER_TYPE: 50,
+  MAX_HIT_EFFECTS: 100,      // 追加
+  HIT_EFFECT_DURATION: 0.3,  // 追加（秒）
+  // 敵スポーン制御（時間ベース）
+  BASE_ENEMIES_PER_WAVE: 2,         // 最小スポーン数
+  ENEMY_COUNT_SCALE_INTERVAL: 20,   // 何秒ごとに敵数+1するか
+  MAX_ENEMIES_PER_SPAWN: 12,        // 1スポーンあたり最大敵数
+  SPAWN_INTERVAL_MIN: 2.0,          // スポーン間隔の最小（秒）
+  SPAWN_INTERVAL_INITIAL: 5.0,      // スポーン間隔の初期値（秒）
+} as const
+
+// 画面外座標（未使用インスタンス用）
+const OFF_SCREEN_POS = new THREE.Vector3(0, -1000, 0)
+
+export const GameManager = () => {
+  // useInstanceState と useUsers（トップレベルで呼び出す）
+  const { localUser } = useUsers()
+  const [sharedScores, setSharedScores] = useInstanceState<string>('game3-highscores-v1', '[]')
+
+  // InstancedMesh の参照
+  const bulletMeshRef = useRef<THREE.InstancedMesh>(null)
+  const enemyMeshRef = useRef<THREE.InstancedMesh>(null)
+  const itemPlusMeshRef = useRef<THREE.InstancedMesh>(null)
+  const itemMinusMeshRef = useRef<THREE.InstancedMesh>(null)
+  const hitEffectMeshRef = useRef<THREE.InstancedMesh>(null)
+
+  // Matrix4 とベクトルの再利用(パフォーマンス最適化)
+  const matrixRef = useRef(new THREE.Matrix4())
+  const hitMatrixRef = useRef(new THREE.Matrix4())
+  const posVecRef = useRef(new THREE.Vector3())
+  const quatRef = useRef(new THREE.Quaternion())
+  const scaleVecRef = useRef(new THREE.Vector3())
+
+  // ゲーム状態(useRef: 高頻度更新、レンダリング不要)
+  const gameState = useRef<GameState>({
+    bullets: [],
+    enemies: [],
+    items: [],
+    hitEffects: [],
+    playerX: 0,
+    playerZ: 0,
+    lastShotTime: 0,
+    lastEnemySpawnTime: 0,
+    lastItemSpawnTime: 0,
+    nextItemSpawnTime: 15 + Math.random() * 15, // 15〜30秒
+  })
+
+  // UI状態（useState: UIレンダリングに必要）
+  const [uiState, setUIState] = useState<UIState>({
+    status: 'start',
+    score: 0,
+    hp: GAME_CONFIG.INITIAL_HP,
+    timeLeft: GAME_CONFIG.GAME_DURATION,
+    wave: 1,
+    bulletPattern: ['center'],
+    damageTakenCount: 0,
+  })
+
+  const startTimeRef = useRef<number>(0)
+  const spawnCountRef = useRef<number>(0)
+  const forwardVecRef = useRef(new THREE.Vector3())
+  const rightVecRef = useRef(new THREE.Vector3())
+
+  // ゲーム開始
+  const handleStart = () => {
+    gameState.current = {
+      bullets: [],
+      enemies: [],
+      items: [],
+      hitEffects: [],
+      playerX: 0,
+      playerZ: 0,
+      lastShotTime: 0,
+      lastEnemySpawnTime: 0,
+      lastItemSpawnTime: 0,
+      nextItemSpawnTime: 15 + Math.random() * 15,
+    }
+
+    setUIState({
+      status: 'playing',
+      score: 0,
+      hp: GAME_CONFIG.INITIAL_HP,
+      timeLeft: GAME_CONFIG.GAME_DURATION,
+      wave: 1,
+      bulletPattern: ['center'],
+      damageTakenCount: 0,
+    })
+
+    startTimeRef.current = Date.now() / 1000
+    spawnCountRef.current = 0
+  }
+
+  // ゲームループ
+  useFrame((rfState, delta) => {
+    if (uiState.status !== 'playing') return
+
+    const state = gameState.current
+    const now = Date.now() / 1000
+
+    // カメラXZ位置をプレイヤー位置に同期
+    state.playerX = rfState.camera.position.x
+    state.playerZ = rfState.camera.position.z
+
+    // カメラの前方ベクトルを取得（XZ平面のみ）
+    const forward = forwardVecRef.current
+    rfState.camera.getWorldDirection(forward)
+    forward.y = 0
+    forward.normalize()
+
+    // 経過時間更新
+    const elapsed = now - startTimeRef.current
+    const newTimeLeft = Math.max(0, Math.ceil(GAME_CONFIG.GAME_DURATION - elapsed))
+
+    // ゲームオーバー判定
+    if (uiState.hp <= 0 || newTimeLeft <= 0) {
+      // スコアを保存
+      const playerName = localUser?.displayName || 'Player'
+      const currentScore = uiState.score
+      try {
+        const existing: ScoreEntry[] = JSON.parse(sharedScores || '[]')
+        existing.push({ name: playerName, score: currentScore, timestamp: Date.now() })
+        existing.sort((a, b) => b.score - a.score)
+        setSharedScores(JSON.stringify(existing.slice(0, 10)))
+      } catch (error) {
+        console.warn('Failed to save score:', error)
+      }
+      setUIState((prev) => ({ ...prev, status: 'gameover', timeLeft: 0 }))
+      return
+    }
+
+    // 自動発射
+    if (now - state.lastShotTime >= GAME_CONFIG.SHOT_INTERVAL) {
+      state.lastShotTime = now
+      const offsets = getBulletXOffsets(uiState.bulletPattern)
+      
+      // カメラの右方向ベクトル（XZ平面）
+      const right = rightVecRef.current.set(-forward.z, 0, forward.x)
+      
+      offsets.forEach((offset) => {
+        const bx = state.playerX + right.x * offset
+        const bz = state.playerZ + right.z * offset
+        
+        state.bullets.push({
+          id: `bullet-${Date.now()}-${Math.random()}`,
+          x: bx,
+          z: bz,
+          vx: forward.x * GAME_CONFIG.BULLET_SPEED,
+          vz: forward.z * GAME_CONFIG.BULLET_SPEED,
+        })
+      })
+    }
+
+    // 弾の移動
+    state.bullets = state.bullets.filter((bullet) => {
+      bullet.x += bullet.vx * delta
+      bullet.z += bullet.vz * delta
+      
+      // プレイヤーからの距離チェック
+      const dx = bullet.x - state.playerX
+      const dz = bullet.z - state.playerZ
+      const dist = Math.sqrt(dx * dx + dz * dz)
+      return dist < GAME_CONFIG.MAX_OBJECT_DISTANCE
+    })
+
+    // 敵の移動と通過ダメージ
+    let escapeDamage = 0
+    state.enemies = state.enemies.filter((enemy) => {
+      const speed = GAME_CONFIG.ENEMY_SPEED + (uiState.wave - 1) * 0.1
+      enemy.x += enemy.vx * speed * delta
+      enemy.z += enemy.vz * speed * delta
+      
+      const dx = enemy.x - state.playerX
+      const dz = enemy.z - state.playerZ
+      const dist = Math.sqrt(dx * dx + dz * dz)
+      
+      // 最大距離到達で削除（ダメージなし）
+      if (dist >= GAME_CONFIG.MAX_OBJECT_DISTANCE) {
+        return false
+      }
+      
+      // 近距離でプレイヤーを通り過ぎた場合はダメージ
+      const passedThrough = (enemy.x - state.playerX) * enemy.vx + (enemy.z - state.playerZ) * enemy.vz > 0
+      if (passedThrough && dist < GAME_CONFIG.PASS_THROUGH_THRESHOLD) {
+        escapeDamage += 1
+        return false
+      }
+      
+      return true
+    })
+
+    // アイテムの移動
+    state.items = state.items.filter((item) => {
+      item.x += item.vx * GAME_CONFIG.ITEM_SPEED * delta
+      item.z += item.vz * GAME_CONFIG.ITEM_SPEED * delta
+      
+      const dx = item.x - state.playerX
+      const dz = item.z - state.playerZ
+      const dist = Math.sqrt(dx * dx + dz * dz)
+      
+      // プレイヤーを通り過ぎたか（velocity方向を使用）
+      const passedThrough = (item.x - state.playerX) * item.vx + (item.z - state.playerZ) * item.vz > 0
+      if (passedThrough && dist < GAME_CONFIG.PASS_THROUGH_THRESHOLD) return false
+      
+      return dist < GAME_CONFIG.MAX_OBJECT_DISTANCE
+    })
+
+    // 弾と敵の衝突判定
+    let scoreGain = 0
+    const destroyedEnemies = new Set<string>()
+    const destroyedBullets = new Set<string>()
+
+    state.bullets.forEach((bullet) => {
+      if (destroyedBullets.has(bullet.id)) return
+
+      state.enemies.forEach((enemy) => {
+        if (destroyedEnemies.has(enemy.id)) return
+
+        const dx = bullet.x - enemy.x
+        const dz = bullet.z - enemy.z
+        const distance = Math.sqrt(dx * dx + dz * dz)
+
+        if (distance < GAME_CONFIG.COLLISION_DISTANCE) {
+          enemy.hp -= 1
+          destroyedBullets.add(bullet.id)
+
+          if (enemy.hp <= 0) {
+            destroyedEnemies.add(enemy.id)
+            scoreGain += 100
+            // ヒットエフェクト追加
+            state.hitEffects.push({
+              id: `hit-${Date.now()}-${Math.random()}`,
+              x: enemy.x,
+              z: enemy.z,
+              age: 0,
+            })
+          }
+        }
+      })
+    })
+
+    state.bullets = state.bullets.filter((b) => !destroyedBullets.has(b.id))
+    state.enemies = state.enemies.filter((e) => !destroyedEnemies.has(e.id))
+
+    // プレイヤーと敵の衝突判定
+    let collisionDamage = 0
+    const collidedEnemies = new Set<string>()
+
+    state.enemies.forEach((enemy) => {
+      const dx = state.playerX - enemy.x
+      const dz = state.playerZ - enemy.z
+      const distance = Math.sqrt(dx * dx + dz * dz)
+
+      if (distance < GAME_CONFIG.COLLISION_DISTANCE) {
+        collidedEnemies.add(enemy.id)
+        collisionDamage += 1
+      }
+    })
+
+    state.enemies = state.enemies.filter((e) => !collidedEnemies.has(e.id))
+
+    // プレイヤーとアイテムの衝突判定
+    let patternChanged = false
+    let newPattern = uiState.bulletPattern
+
+    state.items = state.items.filter((item) => {
+      const dx = state.playerX - item.x
+      const dz = state.playerZ - item.z
+      const distance = Math.sqrt(dx * dx + dz * dz)
+
+      if (distance < GAME_CONFIG.COLLISION_DISTANCE) {
+        if (item.type === '+') {
+          if (newPattern.length >= 5) {
+            scoreGain += 200  // 上限に達した場合はボーナス点
+          } else {
+            newPattern = addBulletColumn(newPattern)
+            patternChanged = true
+          }
+        } else {
+          newPattern = removeOuterBulletColumn(newPattern)
+          patternChanged = true
+        }
+        return false
+      }
+      return true
+    })
+
+    // 敵のスポーン（時間経過で難易度上昇）
+    // スポーン間隔: 開始時5秒 → 時間とともに短縮、最小2秒
+    const spawnInterval = Math.max(
+      GAME_CONFIG.SPAWN_INTERVAL_MIN,
+      GAME_CONFIG.SPAWN_INTERVAL_INITIAL - Math.floor(elapsed / 30) * 0.5
+    )
+
+    if (now - state.lastEnemySpawnTime >= spawnInterval) {
+      state.lastEnemySpawnTime = now
+      spawnCountRef.current += 1
+
+      // Wave: 30秒ごとに1増加（より緩やかな上昇）
+      const currentWave = Math.floor(elapsed / 30) + 1
+
+      // 敵数: 基本2体から始まり、20秒ごとに+1体（最大12体）、±1体のランダム
+      const baseCount = GAME_CONFIG.BASE_ENEMIES_PER_WAVE + Math.floor(elapsed / GAME_CONFIG.ENEMY_COUNT_SCALE_INTERVAL)
+      const enemyCount = Math.min(
+        baseCount + Math.floor(Math.random() * 2),
+        GAME_CONFIG.MAX_ENEMIES_PER_SPAWN
+      )
+
+      for (let i = 0; i < enemyCount; i++) {
+        // カメラ前方にスポーン
+        const spawnX = state.playerX + forward.x * GAME_CONFIG.SPAWN_DISTANCE + (Math.random() - 0.5) * 12
+        const spawnZ = state.playerZ + forward.z * GAME_CONFIG.SPAWN_DISTANCE + (Math.random() - 0.5) * 4
+        
+        state.enemies.push({
+          id: `enemy-${Date.now()}-${Math.random()}`,
+          x: spawnX,
+          z: spawnZ,
+          hp: 1,
+          vx: -forward.x,
+          vz: -forward.z,
+        })
+      }
+
+      if (currentWave !== uiState.wave) {
+        setUIState((prev) => ({ ...prev, wave: currentWave }))
+      }
+    }
+
+    // アイテムのスポーン
+    if (now - state.lastItemSpawnTime >= state.nextItemSpawnTime) {
+      state.lastItemSpawnTime = now
+      state.nextItemSpawnTime = 15 + Math.random() * 15
+
+      const itemType = Math.random() < 0.5 ? '+' : '-'
+      
+      // カメラ前方にスポーン
+      const spawnX = state.playerX + forward.x * GAME_CONFIG.SPAWN_DISTANCE + (Math.random() - 0.5) * 10
+      const spawnZ = state.playerZ + forward.z * GAME_CONFIG.SPAWN_DISTANCE + (Math.random() - 0.5) * 4
+      
+      state.items.push({
+        id: `item-${Date.now()}-${Math.random()}`,
+        x: spawnX,
+        z: spawnZ,
+        type: itemType,
+        vx: -forward.x,
+        vz: -forward.z,
+      })
+    }
+
+    // ヒットエフェクトの更新
+    state.hitEffects = state.hitEffects.map((effect) => ({
+      ...effect,
+      age: effect.age + delta,
+    })).filter((effect) => effect.age < GAME_CONFIG.HIT_EFFECT_DURATION)
+
+    // UI状態を更新（必要な場合のみ）
+    const totalHpLoss = collisionDamage + escapeDamage
+    if (scoreGain > 0 || totalHpLoss > 0 || patternChanged || newTimeLeft !== uiState.timeLeft) {
+      setUIState((prev) => ({
+        ...prev,
+        score: prev.score + scoreGain,
+        hp: Math.max(0, prev.hp - totalHpLoss),
+        timeLeft: newTimeLeft,
+        bulletPattern: patternChanged ? newPattern : prev.bulletPattern,
+        damageTakenCount: totalHpLoss > 0 ? prev.damageTakenCount + 1 : prev.damageTakenCount,
+      }))
+    }
+
+    // ========== InstancedMesh の更新 ==========
+    const matrix = matrixRef.current
+
+    // 弾の描画更新
+    if (bulletMeshRef.current) {
+      const mesh = bulletMeshRef.current
+      for (let i = 0; i < GAME_CONFIG.MAX_BULLETS; i++) {
+        if (i < state.bullets.length) {
+          const bullet = state.bullets[i]
+          matrix.setPosition(bullet.x, GAME_CONFIG.OBJECT_Y, bullet.z)
+        } else {
+          // 未使用インスタンスは画面外に配置
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        }
+        mesh.setMatrixAt(i, matrix)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
+
+    // 敵の描画更新
+    if (enemyMeshRef.current) {
+      const mesh = enemyMeshRef.current
+      for (let i = 0; i < GAME_CONFIG.MAX_ENEMIES; i++) {
+        if (i < state.enemies.length) {
+          const enemy = state.enemies[i]
+          matrix.setPosition(enemy.x, GAME_CONFIG.OBJECT_Y, enemy.z)
+        } else {
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        }
+        mesh.setMatrixAt(i, matrix)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
+
+    // アイテム(+タイプ)の描画更新
+    if (itemPlusMeshRef.current) {
+      const mesh = itemPlusMeshRef.current
+      const plusItems = state.items.filter((item) => item.type === '+')
+      for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
+        if (i < plusItems.length) {
+          const item = plusItems[i]
+          matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
+        } else {
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        }
+        mesh.setMatrixAt(i, matrix)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
+
+    // アイテム(-タイプ)の描画更新
+    if (itemMinusMeshRef.current) {
+      const mesh = itemMinusMeshRef.current
+      const minusItems = state.items.filter((item) => item.type === '-')
+      for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
+        if (i < minusItems.length) {
+          const item = minusItems[i]
+          matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
+        } else {
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        }
+        mesh.setMatrixAt(i, matrix)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
+
+    // ヒットエフェクトの描画更新
+    if (hitEffectMeshRef.current) {
+      const mesh = hitEffectMeshRef.current
+      const hitMatrix = hitMatrixRef.current
+      const pos = posVecRef.current
+      const quat = quatRef.current
+      const scaleVec = scaleVecRef.current
+      
+      quat.identity()
+      
+      for (let i = 0; i < GAME_CONFIG.MAX_HIT_EFFECTS; i++) {
+        if (i < state.hitEffects.length) {
+          const effect = state.hitEffects[i]
+          const progress = effect.age / GAME_CONFIG.HIT_EFFECT_DURATION
+          const scale = 0.3 + progress * 2.0
+          
+          pos.set(effect.x, GAME_CONFIG.OBJECT_Y, effect.z)
+          scaleVec.set(scale, scale, scale)
+          hitMatrix.compose(pos, quat, scaleVec)
+        } else {
+          hitMatrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        }
+        mesh.setMatrixAt(i, hitMatrix)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
+  })
+
+  // オブジェクトの描画
+  const state = gameState.current
+
+  return (
+    <>
+      {/* UI（スタート・ゲームオーバーのオーバーレイ + プレイ中HUD） */}
+      <GameUI
+        status={uiState.status}
+        score={uiState.score}
+        hp={uiState.hp}
+        timeLeft={uiState.timeLeft}
+        wave={uiState.wave}
+        sharedScores={sharedScores}
+        damageTakenCount={uiState.damageTakenCount}
+      />
+
+      {/* スタートボタン（ローカル） */}
+      {uiState.status === 'start' && (
+        <group position={[0, 1.5, 5]}>
+          <Interactable
+            id="local-start-button"
+            onInteract={handleStart}
+            interactionText="ゲームをスタート"
+          >
+            <mesh castShadow>
+              <boxGeometry args={[2.0, 0.6, 0.2]} />
+              <meshStandardMaterial color="#4CAF50" emissive="#2d6e30" emissiveIntensity={0.3} />
+            </mesh>
+          </Interactable>
+          <Text
+            position={[0, 0, 0.12]}
+            fontSize={0.25}
+            color="white"
+            anchorX="center"
+            anchorY="middle"
+          >
+            ▶ PLAY
+          </Text>
+        </group>
+      )}
+
+      {/* リトライボタン（ローカル） */}
+      {uiState.status === 'gameover' && (
+        <group position={[0, 1.5, 5]}>
+          <Interactable
+            id="local-retry-button"
+            onInteract={handleStart}
+            interactionText="もう一度プレイ"
+          >
+            <mesh castShadow>
+              <boxGeometry args={[2.0, 0.6, 0.2]} />
+              <meshStandardMaterial color="#2196F3" emissive="#0d4a7a" emissiveIntensity={0.3} />
+            </mesh>
+          </Interactable>
+          <Text
+            position={[0, 0, 0.12]}
+            fontSize={0.25}
+            color="white"
+            anchorX="center"
+            anchorY="middle"
+          >
+            🔄 RETRY
+          </Text>
+        </group>
+      )}
+
+      {/* 弾(InstancedMesh) */}
+      <instancedMesh ref={bulletMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_BULLETS]} frustumCulled={false}>
+        <sphereGeometry args={[0.15]} />
+        <meshStandardMaterial color="#ffff00" emissive="#ffff00" emissiveIntensity={0.5} />
+      </instancedMesh>
+
+      {/* 敵(InstancedMesh) */}
+      <instancedMesh ref={enemyMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ENEMIES]} frustumCulled={false}>
+        <boxGeometry args={[0.8, 0.5, 0.8]} />
+        <meshStandardMaterial color="#ff4444" />
+      </instancedMesh>
+
+      {/* アイテム(+タイプ、緑) */}
+      <instancedMesh ref={itemPlusMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
+        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <meshStandardMaterial color="#44ff44" />
+      </instancedMesh>
+
+      {/* アイテム(-タイプ、橙) */}
+      <instancedMesh ref={itemMinusMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
+        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <meshStandardMaterial color="#ff8844" />
+      </instancedMesh>
+
+      {/* ヒットエフェクト(InstancedMesh) */}
+      <instancedMesh ref={hitEffectMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_HIT_EFFECTS]} frustumCulled={false}>
+        <sphereGeometry args={[0.5, 8, 8]} />
+        <meshStandardMaterial color="#ff8800" emissive="#ff4400" emissiveIntensity={1.5} transparent opacity={0.8} />
+      </instancedMesh>
+
+      {/* アイテムのテキスト(最適化版) */}
+      {state.items.map((item) => (
+        <Text
+          key={item.id}
+          position={[item.x, GAME_CONFIG.OBJECT_Y + 0.4, item.z]}
+          fontSize={0.4}
+          color="white"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0}
+        >
+          {item.type}
+        </Text>
+      ))}
+    </>
+  )
+}
