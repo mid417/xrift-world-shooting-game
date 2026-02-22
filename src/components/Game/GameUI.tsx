@@ -24,46 +24,7 @@ export const GameUI = ({ status, score, hp, timeLeft, wave, sharedScores, damage
 
   // スタート画面（ボタンなし、pointerEventsを無効化）
   if (status === 'start') {
-    return (
-      <Html fullscreen>
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            fontFamily: 'Arial, sans-serif',
-            pointerEvents: 'none',
-          }}
-        >
-          <h1 style={{ fontSize: '48px', marginBottom: '20px' }}>SHOOTING GAME</h1>
-          <div style={{
-            fontSize: '18px',
-            marginBottom: '30px',
-            textAlign: 'left',
-            lineHeight: '2.0',
-            minWidth: '340px',
-          }}>
-            <div>⬅➡ 移動</div>
-            <div>🔫 弾は自動発射</div>
-            <div>✅ + アイテム: 弾を増やす</div>
-            <div>❌ - アイテム: 弾を減らす</div>
-            <div>⏱ 制限時間: 120秒</div>
-            <div>💎 敵撃破: +100点</div>
-          </div>
-          <p style={{ fontSize: '20px', color: '#4CAF50' }}>
-            ▶ 前のボタンを見てインタラクト
-          </p>
-        </div>
-      </Html>
-    )
+    return null  // 3D看板で表示するため、HTMLは不要
   }
 
   // ゲームオーバー画面（ボタンなし、pointerEventsを無効化）

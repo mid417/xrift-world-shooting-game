@@ -11,7 +11,7 @@ export const World: React.FC<WorldProps> = ({ position = [0, 0, 0], scale = 1 })
   return (
     <group position={position} scale={scale}>
       {/* プレイヤーのスポーン地点（ゲームが見渡せる位置） */}
-      <SpawnPoint position={[0, 0, 8]} />
+      <SpawnPoint position={[0, 0, 12]} />
 
       <Skybox topColor={0xAAAAAA} bottomColor={0x666666} offset={0} exponent={1} />
 

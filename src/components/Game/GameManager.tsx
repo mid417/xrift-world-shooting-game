@@ -3,9 +3,11 @@ import { useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useInstanceState, useUsers, Interactable } from '@xrift/world-components'
-import type { GameState, UIState, ScoreEntry } from './types'
+import type { GameState, UIState, ScoreEntry, ChainLabel } from './types'
 import { addBulletColumn, removeOuterBulletColumn, getBulletXOffsets } from './bulletPattern'
 import { GameUI } from './GameUI'
+import { InstructionBoard } from './InstructionBoard'
+import { useGameSound } from './useGameSound'
 
 // ゲーム定数
 const GAME_CONFIG = {
@@ -43,6 +45,9 @@ export const GameManager = () => {
   const { localUser } = useUsers()
   const [sharedScores, setSharedScores] = useInstanceState<string>('game3-highscores-v1', '[]')
 
+  // サウンドシステム
+  const { playBGM, stopBGM, playShoot, playPowerUp, playDamage00, playDamage10 } = useGameSound()
+
   // InstancedMesh の参照
   const bulletMeshRef = useRef<THREE.InstancedMesh>(null)
   const enemyMeshRef = useRef<THREE.InstancedMesh>(null)
@@ -69,6 +74,8 @@ export const GameManager = () => {
     lastEnemySpawnTime: 0,
     lastItemSpawnTime: 0,
     nextItemSpawnTime: 15 + Math.random() * 15, // 15〜30秒
+    lastHitTime: 0,
+    chainCount: 0,
   })
 
   // UI状態（useState: UIレンダリングに必要）
@@ -81,6 +88,10 @@ export const GameManager = () => {
     bulletPattern: ['center'],
     damageTakenCount: 0,
   })
+
+  // チェーンラベル管理（RefとStateを分離してパフォーマンス向上）
+  const chainLabelsRef = useRef<ChainLabel[]>([])
+  const [chainLabels, setChainLabels] = useState<ChainLabel[]>([])
 
   const startTimeRef = useRef<number>(0)
   const spawnCountRef = useRef<number>(0)
@@ -100,6 +111,8 @@ export const GameManager = () => {
       lastEnemySpawnTime: 0,
       lastItemSpawnTime: 0,
       nextItemSpawnTime: 15 + Math.random() * 15,
+      lastHitTime: 0,
+      chainCount: 0,
     }
 
     setUIState({
@@ -112,6 +125,9 @@ export const GameManager = () => {
       damageTakenCount: 0,
     })
 
+    chainLabelsRef.current = []
+    setChainLabels([])
+    playBGM()
     startTimeRef.current = Date.now() / 1000
     spawnCountRef.current = 0
   }
@@ -150,6 +166,7 @@ export const GameManager = () => {
       } catch (error) {
         console.warn('Failed to save score:', error)
       }
+      stopBGM()
       setUIState((prev) => ({ ...prev, status: 'gameover', timeLeft: 0 }))
       return
     }
@@ -157,6 +174,7 @@ export const GameManager = () => {
     // 自動発射
     if (now - state.lastShotTime >= GAME_CONFIG.SHOT_INTERVAL) {
       state.lastShotTime = now
+      playShoot()
       const offsets = getBulletXOffsets(uiState.bulletPattern)
       
       // カメラの右方向ベクトル（XZ平面）
@@ -251,13 +269,42 @@ export const GameManager = () => {
 
           if (enemy.hp <= 0) {
             destroyedEnemies.add(enemy.id)
-            scoreGain += 100
+            
+            // チェーンカウント計算
+            const nowMs = Date.now()
+            const nowSec = nowMs / 1000
+            const timeSinceLastHit = nowSec - state.lastHitTime
+            
+            if (timeSinceLastHit <= 0.8 && state.lastHitTime > 0) {
+              // 0.8秒以内ならチェーン継続
+              state.chainCount = Math.min(state.chainCount + 1, 9)
+            } else {
+              // 0.8秒以上経過していたらリセット
+              state.chainCount = 1
+            }
+            
+            state.lastHitTime = nowSec
+            
+            // スコア加算（100 × chainCount）
+            scoreGain += 100 * state.chainCount
+            playDamage10()
+            
             // ヒットエフェクト追加
             state.hitEffects.push({
-              id: `hit-${Date.now()}-${Math.random()}`,
+              id: `hit-${nowMs}-${Math.random()}`,
               x: enemy.x,
               z: enemy.z,
               age: 0,
+              chain: state.chainCount,
+            })
+            
+            // チェーンラベル追加（Refに追加、State更新は後で同期）
+            chainLabelsRef.current.push({
+              id: `chain-${nowMs}-${Math.random()}`,
+              x: enemy.x,
+              z: enemy.z,
+              chain: state.chainCount,
+              startTime: nowMs,
             })
           }
         }
@@ -294,6 +341,7 @@ export const GameManager = () => {
       const distance = Math.sqrt(dx * dx + dz * dz)
 
       if (distance < GAME_CONFIG.COLLISION_DISTANCE) {
+        playPowerUp()
         if (item.type === '+') {
           if (newPattern.length >= 5) {
             scoreGain += 200  // 上限に達した場合はボーナス点
@@ -378,8 +426,17 @@ export const GameManager = () => {
       age: effect.age + delta,
     })).filter((effect) => effect.age < GAME_CONFIG.HIT_EFFECT_DURATION)
 
+    // チェーンラベルのクリーンアップ（毎フレーム実行）
+    const nowMs = Date.now()
+    chainLabelsRef.current = chainLabelsRef.current.filter(
+      (label) => nowMs - label.startTime <= GAME_CONFIG.HIT_EFFECT_DURATION * 1000
+    )
+
     // UI状態を更新（必要な場合のみ）
     const totalHpLoss = collisionDamage + escapeDamage
+    if (totalHpLoss > 0) {
+      playDamage00()
+    }
     if (scoreGain > 0 || totalHpLoss > 0 || patternChanged || newTimeLeft !== uiState.timeLeft) {
       setUIState((prev) => ({
         ...prev,
@@ -389,6 +446,9 @@ export const GameManager = () => {
         bulletPattern: patternChanged ? newPattern : prev.bulletPattern,
         damageTakenCount: totalHpLoss > 0 ? prev.damageTakenCount + 1 : prev.damageTakenCount,
       }))
+      
+      // チェーンラベルの同期（RefからStateへ）
+      setChainLabels([...chainLabelsRef.current])
     }
 
     // ========== InstancedMesh の更新 ==========
@@ -501,6 +561,9 @@ export const GameManager = () => {
         damageTakenCount={uiState.damageTakenCount}
       />
 
+      {/* スタート画面の3D立て看板 */}
+      {uiState.status === 'start' && <InstructionBoard />}
+
       {/* スタートボタン（ローカル） */}
       {uiState.status === 'start' && (
         <group position={[0, 1.5, 5]}>
@@ -593,6 +656,22 @@ export const GameManager = () => {
           outlineWidth={0}
         >
           {item.type}
+        </Text>
+      ))}
+
+      {/* チェーンラベル */}
+      {chainLabels.map((label) => (
+        <Text
+          key={label.id}
+          position={[label.x, GAME_CONFIG.OBJECT_Y + 1.5, label.z]}
+          fontSize={0.8}
+          color={label.chain >= 9 ? '#ff4400' : '#ffff00'}
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.05}
+          outlineColor="#000000"
+        >
+          {label.chain >= 9 ? 'MAX' : `x${label.chain}`}
         </Text>
       ))}
     </>

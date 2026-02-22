@@ -52,6 +52,10 @@ export interface GameState {
   lastEnemySpawnTime: number
   lastItemSpawnTime: number
   nextItemSpawnTime: number
+  
+  // チェーン管理
+  lastHitTime: number
+  chainCount: number
 }
 
 // ヒットエフェクト
@@ -60,6 +64,16 @@ export interface HitEffect {
   x: number
   z: number
   age: number  // 経過秒数
+  chain: number  // チェーン数
+}
+
+// チェーンラベル
+export interface ChainLabel {
+  id: string
+  x: number
+  z: number
+  chain: number
+  startTime: number
 }
 
 // スコアエントリ
