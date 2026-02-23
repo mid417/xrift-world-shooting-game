@@ -425,8 +425,11 @@ export const GameManager = () => {
       state.lastItemSpawnTime = now
       state.nextItemSpawnTime = 15 + Math.random() * 15
 
-      const itemTypes: Item['type'][] = ['+', '-', 'speed', 'heal']
-      const itemType = itemTypes[Math.floor(Math.random() * itemTypes.length)]
+      const rand = Math.random()
+      const itemType: Item['type'] =
+        rand < 0.4 ? '+' :
+        rand < 0.7 ? 'speed' :
+        rand < 0.9 ? 'heal' : '-'
       
       // カメラ前方にスポーン
       const spawnX = state.playerX + forward.x * GAME_CONFIG.SPAWN_DISTANCE + (Math.random() - 0.5) * 10
@@ -683,25 +686,25 @@ export const GameManager = () => {
 
       {/* アイテム(+タイプ、緑) */}
       <instancedMesh ref={itemPlusMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
-        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <octahedronGeometry args={[0.3]} />
         <meshStandardMaterial color="#44ff44" />
       </instancedMesh>
 
       {/* アイテム(-タイプ、橙) */}
       <instancedMesh ref={itemMinusMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
-        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <octahedronGeometry args={[0.3]} />
         <meshStandardMaterial color="#ff8844" />
       </instancedMesh>
 
       {/* アイテム(speedタイプ、青) */}
       <instancedMesh ref={itemSpeedMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
-        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <octahedronGeometry args={[0.3]} />
         <meshStandardMaterial color="#4488ff" />
       </instancedMesh>
 
       {/* アイテム(healタイプ、ピンク) */}
       <instancedMesh ref={itemHealMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
-        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <octahedronGeometry args={[0.3]} />
         <meshStandardMaterial color="#ff88cc" />
       </instancedMesh>
 
