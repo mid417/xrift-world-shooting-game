@@ -17,7 +17,7 @@ export const useGameSound = () => {
 
     bgmRef.current = new Audio(`${baseUrl}BGM.mp3`)
     bgmRef.current.loop = true
-    bgmRef.current.volume = 0.1
+    bgmRef.current.volume = 0.05
 
     shootRef.current = new Audio(`${baseUrl}Shoot.mp3`)
     shootRef.current.volume = 0.1
