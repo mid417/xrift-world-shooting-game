@@ -21,8 +21,8 @@ export const World: React.FC<WorldProps> = ({ position = [0, 0, 0], scale = 1 })
         position={[10, 15, 10]}
         intensity={1.0}
         castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
+        shadow-mapSize-width={512}
+        shadow-mapSize-height={512}
         shadow-camera-far={80}
         shadow-camera-left={-30}
         shadow-camera-right={30}

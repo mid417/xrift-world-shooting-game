@@ -200,63 +200,92 @@ export const GameManager = () => {
     }
 
     // 弾の移動
-    state.bullets = state.bullets.filter((bullet) => {
-      bullet.x += bullet.vx * delta
-      bullet.z += bullet.vz * delta
-      
-      // プレイヤーからの距離チェック
-      const dx = bullet.x - state.playerX
-      const dz = bullet.z - state.playerZ
-      const dist = Math.sqrt(dx * dx + dz * dz)
-      return dist < GAME_CONFIG.MAX_OBJECT_DISTANCE
-    })
+    {
+      const bullets = state.bullets
+      const maxDist2 = GAME_CONFIG.MAX_OBJECT_DISTANCE * GAME_CONFIG.MAX_OBJECT_DISTANCE
+      let writeIndex = 0
+      for (let i = 0; i < bullets.length; i++) {
+        const bullet = bullets[i]
+        bullet.x += bullet.vx * delta
+        bullet.z += bullet.vz * delta
+
+        // プレイヤーからの距離チェック
+        const dx = bullet.x - state.playerX
+        const dz = bullet.z - state.playerZ
+        const dist2 = dx * dx + dz * dz
+        if (dist2 < maxDist2) {
+          bullets[writeIndex] = bullet
+          writeIndex += 1
+        }
+      }
+      bullets.length = writeIndex
+    }
 
     // 敵の移動と通過ダメージ
     let escapeDamage = 0
-    state.enemies = state.enemies.filter((enemy) => {
-      const speed = GAME_CONFIG.ENEMY_SPEED + (uiState.wave - 1) * 0.1
-      enemy.x += enemy.vx * speed * delta
-      enemy.z += enemy.vz * speed * delta
-      
-      const dx = enemy.x - state.playerX
-      const dz = enemy.z - state.playerZ
-      const dist = Math.sqrt(dx * dx + dz * dz)
-      
-      // 最大距離到達で削除（ダメージなし）
-      if (dist >= GAME_CONFIG.MAX_OBJECT_DISTANCE) {
-        return false
+    {
+      const enemies = state.enemies
+      const maxDist2 = GAME_CONFIG.MAX_OBJECT_DISTANCE * GAME_CONFIG.MAX_OBJECT_DISTANCE
+      const passThroughDist2 = GAME_CONFIG.PASS_THROUGH_THRESHOLD * GAME_CONFIG.PASS_THROUGH_THRESHOLD
+      let writeIndex = 0
+      for (let i = 0; i < enemies.length; i++) {
+        const enemy = enemies[i]
+        const speed = GAME_CONFIG.ENEMY_SPEED + (uiState.wave - 1) * 0.1
+        enemy.x += enemy.vx * speed * delta
+        enemy.z += enemy.vz * speed * delta
+
+        const dx = enemy.x - state.playerX
+        const dz = enemy.z - state.playerZ
+        const dist2 = dx * dx + dz * dz
+
+        // 最大距離到達で削除（ダメージなし）
+        if (dist2 >= maxDist2) continue
+
+        // 近距離でプレイヤーを通り過ぎた場合はダメージ
+        const passedThrough = (enemy.x - state.playerX) * enemy.vx + (enemy.z - state.playerZ) * enemy.vz > 0
+        if (passedThrough && dist2 < passThroughDist2) {
+          escapeDamage += 1
+          continue
+        }
+
+        enemies[writeIndex] = enemy
+        writeIndex += 1
       }
-      
-      // 近距離でプレイヤーを通り過ぎた場合はダメージ
-      const passedThrough = (enemy.x - state.playerX) * enemy.vx + (enemy.z - state.playerZ) * enemy.vz > 0
-      if (passedThrough && dist < GAME_CONFIG.PASS_THROUGH_THRESHOLD) {
-        escapeDamage += 1
-        return false
-      }
-      
-      return true
-    })
+      enemies.length = writeIndex
+    }
 
     // アイテムの移動
-    state.items = state.items.filter((item) => {
-      item.x += item.vx * GAME_CONFIG.ITEM_SPEED * delta
-      item.z += item.vz * GAME_CONFIG.ITEM_SPEED * delta
-      
-      const dx = item.x - state.playerX
-      const dz = item.z - state.playerZ
-      const dist = Math.sqrt(dx * dx + dz * dz)
-      
-      // プレイヤーを通り過ぎたか（velocity方向を使用）
-      const passedThrough = (item.x - state.playerX) * item.vx + (item.z - state.playerZ) * item.vz > 0
-      if (passedThrough && dist < GAME_CONFIG.PASS_THROUGH_THRESHOLD) return false
-      
-      return dist < GAME_CONFIG.MAX_OBJECT_DISTANCE
-    })
+    {
+      const items = state.items
+      const maxDist2 = GAME_CONFIG.MAX_OBJECT_DISTANCE * GAME_CONFIG.MAX_OBJECT_DISTANCE
+      const passThroughDist2 = GAME_CONFIG.PASS_THROUGH_THRESHOLD * GAME_CONFIG.PASS_THROUGH_THRESHOLD
+      let writeIndex = 0
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        item.x += item.vx * GAME_CONFIG.ITEM_SPEED * delta
+        item.z += item.vz * GAME_CONFIG.ITEM_SPEED * delta
+
+        const dx = item.x - state.playerX
+        const dz = item.z - state.playerZ
+        const dist2 = dx * dx + dz * dz
+
+        // プレイヤーを通り過ぎたか（velocity方向を使用）
+        const passedThrough = (item.x - state.playerX) * item.vx + (item.z - state.playerZ) * item.vz > 0
+        if (passedThrough && dist2 < passThroughDist2) continue
+
+        if (dist2 < maxDist2) {
+          items[writeIndex] = item
+          writeIndex += 1
+        }
+      }
+      items.length = writeIndex
+    }
 
     // 弾と敵の衝突判定
     let scoreGain = 0
     const destroyedEnemies = new Set<string>()
     const destroyedBullets = new Set<string>()
+    const collisionDist2 = GAME_CONFIG.COLLISION_DISTANCE * GAME_CONFIG.COLLISION_DISTANCE
 
     state.bullets.forEach((bullet) => {
       if (destroyedBullets.has(bullet.id)) return
@@ -266,9 +295,9 @@ export const GameManager = () => {
 
         const dx = bullet.x - enemy.x
         const dz = bullet.z - enemy.z
-        const distance = Math.sqrt(dx * dx + dz * dz)
+        const distance2 = dx * dx + dz * dz
 
-        if (distance < GAME_CONFIG.COLLISION_DISTANCE) {
+        if (distance2 < collisionDist2) {
           enemy.hp -= 1
           destroyedBullets.add(bullet.id)
 
@@ -316,25 +345,54 @@ export const GameManager = () => {
       })
     })
 
-    state.bullets = state.bullets.filter((b) => !destroyedBullets.has(b.id))
-    state.enemies = state.enemies.filter((e) => !destroyedEnemies.has(e.id))
+    if (destroyedBullets.size > 0) {
+      const bullets = state.bullets
+      let writeIndex = 0
+      for (let i = 0; i < bullets.length; i++) {
+        const bullet = bullets[i]
+        if (!destroyedBullets.has(bullet.id)) {
+          bullets[writeIndex] = bullet
+          writeIndex += 1
+        }
+      }
+      bullets.length = writeIndex
+    }
+
+    if (destroyedEnemies.size > 0) {
+      const enemies = state.enemies
+      let writeIndex = 0
+      for (let i = 0; i < enemies.length; i++) {
+        const enemy = enemies[i]
+        if (!destroyedEnemies.has(enemy.id)) {
+          enemies[writeIndex] = enemy
+          writeIndex += 1
+        }
+      }
+      enemies.length = writeIndex
+    }
 
     // プレイヤーと敵の衝突判定
     let collisionDamage = 0
-    const collidedEnemies = new Set<string>()
+    {
+      const enemies = state.enemies
+      const collisionDist2 = GAME_CONFIG.COLLISION_DISTANCE * GAME_CONFIG.COLLISION_DISTANCE
+      let writeIndex = 0
+      for (let i = 0; i < enemies.length; i++) {
+        const enemy = enemies[i]
+        const dx = state.playerX - enemy.x
+        const dz = state.playerZ - enemy.z
+        const distance2 = dx * dx + dz * dz
 
-    state.enemies.forEach((enemy) => {
-      const dx = state.playerX - enemy.x
-      const dz = state.playerZ - enemy.z
-      const distance = Math.sqrt(dx * dx + dz * dz)
+        if (distance2 < collisionDist2) {
+          collisionDamage += 1
+          continue
+        }
 
-      if (distance < GAME_CONFIG.COLLISION_DISTANCE) {
-        collidedEnemies.add(enemy.id)
-        collisionDamage += 1
+        enemies[writeIndex] = enemy
+        writeIndex += 1
       }
-    })
-
-    state.enemies = state.enemies.filter((e) => !collidedEnemies.has(e.id))
+      enemies.length = writeIndex
+    }
 
     // プレイヤーとアイテムの衝突判定
     let patternChanged = false
@@ -343,41 +401,50 @@ export const GameManager = () => {
     let newSpeedMultiplier = uiState.bulletSpeedMultiplier
     let hpGain = 0
 
-    state.items = state.items.filter((item) => {
-      const dx = state.playerX - item.x
-      const dz = state.playerZ - item.z
-      const distance = Math.sqrt(dx * dx + dz * dz)
+    {
+      const items = state.items
+      const collisionDist2 = GAME_CONFIG.COLLISION_DISTANCE * GAME_CONFIG.COLLISION_DISTANCE
+      let writeIndex = 0
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        const dx = state.playerX - item.x
+        const dz = state.playerZ - item.z
+        const distance2 = dx * dx + dz * dz
 
-      if (distance < GAME_CONFIG.COLLISION_DISTANCE) {
-        if (item.type === '+') {
-          playPowerUp()
-          if (newPattern.length >= 5) {
-            scoreGain += 200  // 上限に達した場合はボーナス点
-          } else {
-            newPattern = addBulletColumn(newPattern)
+        if (distance2 < collisionDist2) {
+          if (item.type === '+') {
+            playPowerUp()
+            if (newPattern.length >= 5) {
+              scoreGain += 200  // 上限に達した場合はボーナス点
+            } else {
+              newPattern = addBulletColumn(newPattern)
+              patternChanged = true
+            }
+          } else if (item.type === '-') {
+            playPowerUp()
+            newPattern = removeOuterBulletColumn(newPattern)
             patternChanged = true
+          } else if (item.type === 'speed') {
+            playPowerUp()
+            const currentIndex = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.indexOf(newSpeedMultiplier as 1.0 | 1.2 | 1.4)
+            if (currentIndex < GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.length - 1) {
+              newSpeedMultiplier = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS[currentIndex + 1]
+              speedMultiplierChanged = true
+            } else {
+              scoreGain += 200  // 上限に達した場合はボーナス点
+            }
+          } else if (item.type === 'heal') {
+            playPowerUp()
+            hpGain = Math.min(1, GAME_CONFIG.INITIAL_HP - uiState.hp)
           }
-        } else if (item.type === '-') {
-          playPowerUp()
-          newPattern = removeOuterBulletColumn(newPattern)
-          patternChanged = true
-        } else if (item.type === 'speed') {
-          playPowerUp()
-          const currentIndex = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.indexOf(newSpeedMultiplier as 1.0 | 1.2 | 1.4)
-          if (currentIndex < GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.length - 1) {
-            newSpeedMultiplier = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS[currentIndex + 1]
-            speedMultiplierChanged = true
-          } else {
-            scoreGain += 200  // 上限に達した場合はボーナス点
-          }
-        } else if (item.type === 'heal') {
-          playPowerUp()
-          hpGain = Math.min(1, GAME_CONFIG.INITIAL_HP - uiState.hp)
+          continue
         }
-        return false
+
+        items[writeIndex] = item
+        writeIndex += 1
       }
-      return true
-    })
+      items.length = writeIndex
+    }
 
     // 敵のスポーン（時間経過で難易度上昇）
     // スポーン間隔: 開始時5秒 → 時間とともに短縮、最小2秒
@@ -446,16 +513,35 @@ export const GameManager = () => {
     }
 
     // ヒットエフェクトの更新
-    state.hitEffects = state.hitEffects.map((effect) => ({
-      ...effect,
-      age: effect.age + delta,
-    })).filter((effect) => effect.age < GAME_CONFIG.HIT_EFFECT_DURATION)
+    {
+      const effects = state.hitEffects
+      let writeIndex = 0
+      for (let i = 0; i < effects.length; i++) {
+        const effect = effects[i]
+        effect.age += delta
+        if (effect.age < GAME_CONFIG.HIT_EFFECT_DURATION) {
+          effects[writeIndex] = effect
+          writeIndex += 1
+        }
+      }
+      effects.length = writeIndex
+    }
 
     // チェーンラベルのクリーンアップ（毎フレーム実行）
     const nowMs = Date.now()
-    chainLabelsRef.current = chainLabelsRef.current.filter(
-      (label) => nowMs - label.startTime <= GAME_CONFIG.HIT_EFFECT_DURATION * 1000
-    )
+    {
+      const labels = chainLabelsRef.current
+      const maxAgeMs = GAME_CONFIG.HIT_EFFECT_DURATION * 1000
+      let writeIndex = 0
+      for (let i = 0; i < labels.length; i++) {
+        const label = labels[i]
+        if (nowMs - label.startTime <= maxAgeMs) {
+          labels[writeIndex] = label
+          writeIndex += 1
+        }
+      }
+      labels.length = writeIndex
+    }
 
     // UI状態を更新（必要な場合のみ）
     const totalHpLoss = collisionDamage + escapeDamage
@@ -511,68 +597,80 @@ export const GameManager = () => {
       mesh.instanceMatrix.needsUpdate = true
     }
 
-    // アイテム(+タイプ)の描画更新
-    if (itemPlusMeshRef.current) {
-      const mesh = itemPlusMeshRef.current
-      const plusItems = state.items.filter((item) => item.type === '+')
-      for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
-        if (i < plusItems.length) {
-          const item = plusItems[i]
-          matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
-        } else {
-          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
-        }
-        mesh.setMatrixAt(i, matrix)
-      }
-      mesh.instanceMatrix.needsUpdate = true
-    }
+    // アイテムの描画更新（単一パスで各タイプのInstancedMeshを更新）
+    {
+      const plusMesh = itemPlusMeshRef.current
+      const minusMesh = itemMinusMeshRef.current
+      const speedMesh = itemSpeedMeshRef.current
+      const healMesh = itemHealMeshRef.current
 
-    // アイテム(-タイプ)の描画更新
-    if (itemMinusMeshRef.current) {
-      const mesh = itemMinusMeshRef.current
-      const minusItems = state.items.filter((item) => item.type === '-')
-      for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
-        if (i < minusItems.length) {
-          const item = minusItems[i]
-          matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
-        } else {
-          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
-        }
-        mesh.setMatrixAt(i, matrix)
-      }
-      mesh.instanceMatrix.needsUpdate = true
-    }
+      if (plusMesh || minusMesh || speedMesh || healMesh) {
+        let plusIndex = 0
+        let minusIndex = 0
+        let speedIndex = 0
+        let healIndex = 0
 
-    // アイテム(speedタイプ)の描画更新
-    if (itemSpeedMeshRef.current) {
-      const mesh = itemSpeedMeshRef.current
-      const speedItems = state.items.filter((item) => item.type === 'speed')
-      for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
-        if (i < speedItems.length) {
-          const item = speedItems[i]
-          matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
-        } else {
-          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        for (let i = 0; i < state.items.length; i++) {
+          const item = state.items[i]
+          if (item.type === '+') {
+            if (plusMesh && plusIndex < GAME_CONFIG.MAX_ITEMS_PER_TYPE) {
+              matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
+              plusMesh.setMatrixAt(plusIndex, matrix)
+              plusIndex += 1
+            }
+          } else if (item.type === '-') {
+            if (minusMesh && minusIndex < GAME_CONFIG.MAX_ITEMS_PER_TYPE) {
+              matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
+              minusMesh.setMatrixAt(minusIndex, matrix)
+              minusIndex += 1
+            }
+          } else if (item.type === 'speed') {
+            if (speedMesh && speedIndex < GAME_CONFIG.MAX_ITEMS_PER_TYPE) {
+              matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
+              speedMesh.setMatrixAt(speedIndex, matrix)
+              speedIndex += 1
+            }
+          } else if (item.type === 'heal') {
+            if (healMesh && healIndex < GAME_CONFIG.MAX_ITEMS_PER_TYPE) {
+              matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
+              healMesh.setMatrixAt(healIndex, matrix)
+              healIndex += 1
+            }
+          }
         }
-        mesh.setMatrixAt(i, matrix)
-      }
-      mesh.instanceMatrix.needsUpdate = true
-    }
 
-    // アイテム(healタイプ)の描画更新
-    if (itemHealMeshRef.current) {
-      const mesh = itemHealMeshRef.current
-      const healItems = state.items.filter((item) => item.type === 'heal')
-      for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
-        if (i < healItems.length) {
-          const item = healItems[i]
-          matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
-        } else {
-          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        if (plusMesh) {
+          for (let i = plusIndex; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
+            matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+            plusMesh.setMatrixAt(i, matrix)
+          }
+          plusMesh.instanceMatrix.needsUpdate = true
         }
-        mesh.setMatrixAt(i, matrix)
+
+        if (minusMesh) {
+          for (let i = minusIndex; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
+            matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+            minusMesh.setMatrixAt(i, matrix)
+          }
+          minusMesh.instanceMatrix.needsUpdate = true
+        }
+
+        if (speedMesh) {
+          for (let i = speedIndex; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
+            matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+            speedMesh.setMatrixAt(i, matrix)
+          }
+          speedMesh.instanceMatrix.needsUpdate = true
+        }
+
+        if (healMesh) {
+          for (let i = healIndex; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
+            matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+            healMesh.setMatrixAt(i, matrix)
+          }
+          healMesh.instanceMatrix.needsUpdate = true
+        }
       }
-      mesh.instanceMatrix.needsUpdate = true
     }
 
     // ヒットエフェクトの描画更新
