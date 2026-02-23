@@ -18,8 +18,7 @@ export const InstructionBoard = () => {
   ]
 
   return (
-    <group position={[10, 2, 10
-    ]} rotation={[0, -0.6632251157578454, 0]}>
+    <group position={[6, 2, 10]} rotation={[0, -0.6632251157578454, 0]}>
       {/* 背景（暗い板） */}
       <mesh position={[0, 0, -0.1]}>
         <planeGeometry args={[6, 8]} />
