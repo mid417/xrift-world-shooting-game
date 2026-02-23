@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useInstanceState, useUsers, Interactable } from '@xrift/world-components'
-import type { GameState, UIState, ScoreEntry, ChainLabel } from './types'
+import type { GameState, UIState, ScoreEntry, ChainLabel, Item } from './types'
 import { addBulletColumn, removeOuterBulletColumn, getBulletXOffsets } from './bulletPattern'
 import { GameUI } from './GameUI'
 import { InstructionBoard } from './InstructionBoard'
@@ -35,6 +35,7 @@ const GAME_CONFIG = {
   MAX_ENEMIES_PER_SPAWN: 12,        // 1スポーンあたり最大敵数
   SPAWN_INTERVAL_MIN: 2.0,          // スポーン間隔の最小（秒）
   SPAWN_INTERVAL_INITIAL: 5.0,      // スポーン間隔の初期値（秒）
+  BULLET_SPEED_MULTIPLIERS: [1.0, 1.2, 1.4] as const,
 } as const
 
 // 画面外座標（未使用インスタンス用）
@@ -53,6 +54,8 @@ export const GameManager = () => {
   const enemyMeshRef = useRef<THREE.InstancedMesh>(null)
   const itemPlusMeshRef = useRef<THREE.InstancedMesh>(null)
   const itemMinusMeshRef = useRef<THREE.InstancedMesh>(null)
+  const itemSpeedMeshRef = useRef<THREE.InstancedMesh>(null)
+  const itemHealMeshRef = useRef<THREE.InstancedMesh>(null)
   const hitEffectMeshRef = useRef<THREE.InstancedMesh>(null)
 
   // Matrix4 とベクトルの再利用(パフォーマンス最適化)
@@ -87,6 +90,7 @@ export const GameManager = () => {
     wave: 1,
     bulletPattern: ['center'],
     damageTakenCount: 0,
+    bulletSpeedMultiplier: 1.0,
   })
 
   // チェーンラベル管理（RefとStateを分離してパフォーマンス向上）
@@ -123,6 +127,7 @@ export const GameManager = () => {
       wave: 1,
       bulletPattern: ['center'],
       damageTakenCount: 0,
+      bulletSpeedMultiplier: 1.0,
     })
 
     chainLabelsRef.current = []
@@ -188,8 +193,8 @@ export const GameManager = () => {
           id: `bullet-${Date.now()}-${Math.random()}`,
           x: bx,
           z: bz,
-          vx: forward.x * GAME_CONFIG.BULLET_SPEED,
-          vz: forward.z * GAME_CONFIG.BULLET_SPEED,
+          vx: forward.x * GAME_CONFIG.BULLET_SPEED * uiState.bulletSpeedMultiplier,
+          vz: forward.z * GAME_CONFIG.BULLET_SPEED * uiState.bulletSpeedMultiplier,
         })
       })
     }
@@ -334,6 +339,9 @@ export const GameManager = () => {
     // プレイヤーとアイテムの衝突判定
     let patternChanged = false
     let newPattern = uiState.bulletPattern
+    let speedMultiplierChanged = false
+    let newSpeedMultiplier = uiState.bulletSpeedMultiplier
+    let hpGain = 0
 
     state.items = state.items.filter((item) => {
       const dx = state.playerX - item.x
@@ -341,17 +349,30 @@ export const GameManager = () => {
       const distance = Math.sqrt(dx * dx + dz * dz)
 
       if (distance < GAME_CONFIG.COLLISION_DISTANCE) {
-        playPowerUp()
         if (item.type === '+') {
+          playPowerUp()
           if (newPattern.length >= 5) {
             scoreGain += 200  // 上限に達した場合はボーナス点
           } else {
             newPattern = addBulletColumn(newPattern)
             patternChanged = true
           }
-        } else {
+        } else if (item.type === '-') {
+          playPowerUp()
           newPattern = removeOuterBulletColumn(newPattern)
           patternChanged = true
+        } else if (item.type === 'speed') {
+          playPowerUp()
+          const currentIndex = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.indexOf(newSpeedMultiplier as 1.0 | 1.2 | 1.4)
+          if (currentIndex < GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.length - 1) {
+            newSpeedMultiplier = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS[currentIndex + 1]
+            speedMultiplierChanged = true
+          } else {
+            scoreGain += 200  // 上限に達した場合はボーナス点
+          }
+        } else if (item.type === 'heal') {
+          playPowerUp()
+          hpGain = Math.min(1, GAME_CONFIG.INITIAL_HP - uiState.hp)
         }
         return false
       }
@@ -404,7 +425,8 @@ export const GameManager = () => {
       state.lastItemSpawnTime = now
       state.nextItemSpawnTime = 15 + Math.random() * 15
 
-      const itemType = Math.random() < 0.5 ? '+' : '-'
+      const itemTypes: Item['type'][] = ['+', '-', 'speed', 'heal']
+      const itemType = itemTypes[Math.floor(Math.random() * itemTypes.length)]
       
       // カメラ前方にスポーン
       const spawnX = state.playerX + forward.x * GAME_CONFIG.SPAWN_DISTANCE + (Math.random() - 0.5) * 10
@@ -437,13 +459,14 @@ export const GameManager = () => {
     if (totalHpLoss > 0) {
       playDamage00()
     }
-    if (scoreGain > 0 || totalHpLoss > 0 || patternChanged || newTimeLeft !== uiState.timeLeft) {
+    if (scoreGain > 0 || totalHpLoss > 0 || hpGain > 0 || patternChanged || speedMultiplierChanged || newTimeLeft !== uiState.timeLeft) {
       setUIState((prev) => ({
         ...prev,
         score: prev.score + scoreGain,
-        hp: Math.max(0, prev.hp - totalHpLoss),
+        hp: Math.min(GAME_CONFIG.INITIAL_HP, Math.max(0, prev.hp - totalHpLoss + hpGain)),
         timeLeft: newTimeLeft,
         bulletPattern: patternChanged ? newPattern : prev.bulletPattern,
+        bulletSpeedMultiplier: speedMultiplierChanged ? newSpeedMultiplier : prev.bulletSpeedMultiplier,
         damageTakenCount: totalHpLoss > 0 ? prev.damageTakenCount + 1 : prev.damageTakenCount,
       }))
       
@@ -508,6 +531,38 @@ export const GameManager = () => {
       for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
         if (i < minusItems.length) {
           const item = minusItems[i]
+          matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
+        } else {
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        }
+        mesh.setMatrixAt(i, matrix)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
+
+    // アイテム(speedタイプ)の描画更新
+    if (itemSpeedMeshRef.current) {
+      const mesh = itemSpeedMeshRef.current
+      const speedItems = state.items.filter((item) => item.type === 'speed')
+      for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
+        if (i < speedItems.length) {
+          const item = speedItems[i]
+          matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
+        } else {
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+        }
+        mesh.setMatrixAt(i, matrix)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
+
+    // アイテム(healタイプ)の描画更新
+    if (itemHealMeshRef.current) {
+      const mesh = itemHealMeshRef.current
+      const healItems = state.items.filter((item) => item.type === 'heal')
+      for (let i = 0; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
+        if (i < healItems.length) {
+          const item = healItems[i]
           matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
         } else {
           matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
@@ -638,6 +693,18 @@ export const GameManager = () => {
         <meshStandardMaterial color="#ff8844" />
       </instancedMesh>
 
+      {/* アイテム(speedタイプ、青) */}
+      <instancedMesh ref={itemSpeedMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
+        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <meshStandardMaterial color="#4488ff" />
+      </instancedMesh>
+
+      {/* アイテム(healタイプ、ピンク) */}
+      <instancedMesh ref={itemHealMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
+        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <meshStandardMaterial color="#ff88cc" />
+      </instancedMesh>
+
       {/* ヒットエフェクト(InstancedMesh) */}
       <instancedMesh ref={hitEffectMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_HIT_EFFECTS]} frustumCulled={false}>
         <sphereGeometry args={[0.5, 8, 8]} />
@@ -655,7 +722,7 @@ export const GameManager = () => {
           anchorY="middle"
           outlineWidth={0}
         >
-          {item.type}
+          {item.type === 'speed' ? '↑' : item.type === 'heal' ? '♥' : item.type}
         </Text>
       ))}
 

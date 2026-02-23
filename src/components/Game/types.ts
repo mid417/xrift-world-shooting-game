@@ -28,7 +28,7 @@ export interface Item {
   id: string
   x: number
   z: number
-  type: '+' | '-'
+  type: '+' | '-' | 'speed' | 'heal'
   vx: number
   vz: number
 }
@@ -92,4 +92,5 @@ export interface UIState {
   wave: number
   bulletPattern: BulletColumn[]
   damageTakenCount: number  // HP減少のたびにインクリメント、フラッシュトリガー用
+  bulletSpeedMultiplier: number  // 1.0 | 1.2 | 1.4
 }
