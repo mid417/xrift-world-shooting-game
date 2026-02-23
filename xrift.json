@@ -5,8 +5,8 @@
   },
   "world": {
     "distDir": "./dist",
-    "title": "2Dシューティング",
-    "description": "2Dシューティングゲーム作成中...",
+    "title": "2D STGっぽいもの",
+    "description": "作成中...",
     "thumbnailPath": "thumbnail.png",
     "buildCommand": "npm run build",
     "ignore": [
