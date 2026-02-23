@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 import { useXRift } from '@xrift/world-components'
 
 export const useGameSound = () => {
@@ -69,6 +69,16 @@ export const useGameSound = () => {
     if (damage10Ref.current) {
       damage10Ref.current.currentTime = 0
       damage10Ref.current.play().catch(() => {})
+    }
+  }, [])
+
+  // アンマウント時にBGMを停止
+  useEffect(() => {
+    return () => {
+      if (bgmRef.current) {
+        bgmRef.current.pause()
+        bgmRef.current.currentTime = 0
+      }
     }
   }, [])
 

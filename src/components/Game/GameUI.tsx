@@ -37,7 +37,7 @@ export const GameUI = ({ status, score, hp, timeLeft, wave, sharedScores, damage
     }
 
     return (
-      <Html fullscreen>
+      <Html fullscreen style={{ pointerEvents: 'none' }}>
         <div
           style={{
             position: 'fixed',
@@ -102,7 +102,7 @@ export const GameUI = ({ status, score, hp, timeLeft, wave, sharedScores, damage
 
   // プレイ中のHUD
   return (
-    <Html fullscreen>
+    <Html fullscreen style={{ pointerEvents: 'none' }}>
       {isFlashing && (
         <div
           style={{
@@ -127,11 +127,23 @@ export const GameUI = ({ status, score, hp, timeLeft, wave, sharedScores, damage
         `}</style>
       )}
 
+      <style>{`
+        .game-hud {
+          top: 20px;
+        }
+
+        @supports (top: env(safe-area-inset-top, 0px)) {
+          .game-hud {
+            top: calc(20px + env(safe-area-inset-top, 0px));
+          }
+        }
+      `}</style>
       <div
+        className="game-hud"
         style={{
           position: 'fixed',
-          top: '20px',
           left: '50%',
+          zIndex: 0,
           transform: 'translateX(-50%)',
           display: 'flex',
           gap: '30px',

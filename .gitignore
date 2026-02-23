@@ -19,3 +19,5 @@ dist
 .xrift
 
 .serena
+tests
+test-results
