@@ -59,8 +59,8 @@ XRiftへのアップロード: `xrift upload world`
 
 - 背景・テクスチャ: `public/tokyo-station.jpg`
 - 3Dモデル: `public/duck.glb`（敵キャラクター）
-- BGM: `public/BGM.mp3`
-- 効果音:
+- BGM: `public/BGM.mp3` (OTOLogicの音源を利用)
+- 効果音: (OTOLogicの音源を利用)
   - `public/Shoot.mp3`（射撃音）
   - `public/Damage00.mp3`, `public/Damage10.mp3`（ダメージ音）
   - `public/PowerUp.mp3`（パワーアップ音）
