@@ -172,8 +172,30 @@ export const GameManager = () => {
         console.warn('Failed to save score:', error)
       }
       stopBGM()
+      // 敵と弾をクリア
+      state.bullets = []
+      state.enemies = []
       const isTimeUp = newTimeLeft <= 0 && uiState.hp > 0
       setUIState((prev) => ({ ...prev, status: 'gameover', timeLeft: isTimeUp ? 0 : newTimeLeft }))
+      
+      // メッシュの即座更新（敵と弾を画面から消す）
+      const matrix = matrixRef.current
+      if (bulletMeshRef.current) {
+        const mesh = bulletMeshRef.current
+        for (let i = 0; i < GAME_CONFIG.MAX_BULLETS; i++) {
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+          mesh.setMatrixAt(i, matrix)
+        }
+        mesh.instanceMatrix.needsUpdate = true
+      }
+      if (enemyMeshRef.current) {
+        const mesh = enemyMeshRef.current
+        for (let i = 0; i < GAME_CONFIG.MAX_ENEMIES; i++) {
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+          mesh.setMatrixAt(i, matrix)
+        }
+        mesh.instanceMatrix.needsUpdate = true
+      }
       return
     }
 
