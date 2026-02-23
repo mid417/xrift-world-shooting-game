@@ -4,7 +4,7 @@ import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useInstanceState, useUsers, Interactable } from '@xrift/world-components'
 import type { GameState, UIState, ScoreEntry, ChainLabel, Item } from './types'
-import { addBulletColumn, removeOuterBulletColumn, getBulletXOffsets } from './bulletPattern'
+import { addBulletColumn, getBulletXOffsets } from './bulletPattern'
 import { GameUI } from './GameUI'
 import { InstructionBoard } from './InstructionBoard'
 import { useGameSound } from './useGameSound'
@@ -14,7 +14,7 @@ const GAME_CONFIG = {
   SPAWN_DISTANCE: 25,         // 敵・アイテムのスポーン距離
   MAX_OBJECT_DISTANCE: 30,    // オブジェクトの最大有効距離
   PLAYER_SPEED: 5.0,
-  BULLET_SPEED: 15,
+  BULLET_SPEED: 10,
   ENEMY_SPEED: 2.4,           // 敵の基本移動速度
   ITEM_SPEED: 1.8,            // アイテムの移動速度
   SHOT_INTERVAL: 0.3,
@@ -22,6 +22,7 @@ const GAME_CONFIG = {
   GAME_DURATION: 300,
   OBJECT_Y: 0.4,
   COLLISION_DISTANCE: 0.6,     // 衝突判定距離
+  ITEM_COLLISION_DISTANCE: 1.8, // アイテム取得判定距離（通常の3倍）
   PASS_THROUGH_THRESHOLD: 3,   // 通り過ぎ判定距離
   // InstancedMesh用の最大インスタンス数
   MAX_BULLETS: 200,
@@ -53,7 +54,6 @@ export const GameManager = () => {
   const bulletMeshRef = useRef<THREE.InstancedMesh>(null)
   const enemyMeshRef = useRef<THREE.InstancedMesh>(null)
   const itemPlusMeshRef = useRef<THREE.InstancedMesh>(null)
-  const itemMinusMeshRef = useRef<THREE.InstancedMesh>(null)
   const itemSpeedMeshRef = useRef<THREE.InstancedMesh>(null)
   const itemHealMeshRef = useRef<THREE.InstancedMesh>(null)
   const hitEffectMeshRef = useRef<THREE.InstancedMesh>(null)
@@ -404,7 +404,7 @@ export const GameManager = () => {
 
     {
       const items = state.items
-      const collisionDist2 = GAME_CONFIG.COLLISION_DISTANCE * GAME_CONFIG.COLLISION_DISTANCE
+      const collisionDist2 = GAME_CONFIG.ITEM_COLLISION_DISTANCE * GAME_CONFIG.ITEM_COLLISION_DISTANCE
       let writeIndex = 0
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
@@ -421,10 +421,6 @@ export const GameManager = () => {
               newPattern = addBulletColumn(newPattern)
               patternChanged = true
             }
-          } else if (item.type === '-') {
-            playPowerUp()
-            newPattern = removeOuterBulletColumn(newPattern)
-            patternChanged = true
           } else if (item.type === 'speed') {
             playPowerUp()
             const currentIndex = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.findIndex((m) => m === newSpeedMultiplier)
@@ -496,8 +492,7 @@ export const GameManager = () => {
       const rand = Math.random()
       const itemType: Item['type'] =
         rand < 0.4 ? '+' :
-        rand < 0.7 ? 'speed' :
-        rand < 0.9 ? 'heal' : '-'
+        rand < 0.8 ? 'speed' : 'heal'
       
       // カメラ前方にスポーン
       const spawnX = state.playerX + forward.x * GAME_CONFIG.SPAWN_DISTANCE + (Math.random() - 0.5) * 10
@@ -601,13 +596,11 @@ export const GameManager = () => {
     // アイテムの描画更新（単一パスで各タイプのInstancedMeshを更新）
     {
       const plusMesh = itemPlusMeshRef.current
-      const minusMesh = itemMinusMeshRef.current
       const speedMesh = itemSpeedMeshRef.current
       const healMesh = itemHealMeshRef.current
 
-      if (plusMesh || minusMesh || speedMesh || healMesh) {
+      if (plusMesh || speedMesh || healMesh) {
         let plusIndex = 0
-        let minusIndex = 0
         let speedIndex = 0
         let healIndex = 0
 
@@ -618,12 +611,6 @@ export const GameManager = () => {
               matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
               plusMesh.setMatrixAt(plusIndex, matrix)
               plusIndex += 1
-            }
-          } else if (item.type === '-') {
-            if (minusMesh && minusIndex < GAME_CONFIG.MAX_ITEMS_PER_TYPE) {
-              matrix.setPosition(item.x, GAME_CONFIG.OBJECT_Y, item.z)
-              minusMesh.setMatrixAt(minusIndex, matrix)
-              minusIndex += 1
             }
           } else if (item.type === 'speed') {
             if (speedMesh && speedIndex < GAME_CONFIG.MAX_ITEMS_PER_TYPE) {
@@ -646,14 +633,6 @@ export const GameManager = () => {
             plusMesh.setMatrixAt(i, matrix)
           }
           plusMesh.instanceMatrix.needsUpdate = true
-        }
-
-        if (minusMesh) {
-          for (let i = minusIndex; i < GAME_CONFIG.MAX_ITEMS_PER_TYPE; i++) {
-            matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
-            minusMesh.setMatrixAt(i, matrix)
-          }
-          minusMesh.instanceMatrix.needsUpdate = true
         }
 
         if (speedMesh) {
@@ -789,11 +768,6 @@ export const GameManager = () => {
         <meshStandardMaterial color="#44ff44" />
       </instancedMesh>
 
-      {/* アイテム(-タイプ、橙) */}
-      <instancedMesh ref={itemMinusMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>
-        <octahedronGeometry args={[0.3]} />
-        <meshStandardMaterial color="#ff8844" />
-      </instancedMesh>
 
       {/* アイテム(speedタイプ、青) */}
       <instancedMesh ref={itemSpeedMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ITEMS_PER_TYPE]} frustumCulled={false}>

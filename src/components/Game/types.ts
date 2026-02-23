@@ -28,7 +28,7 @@ export interface Item {
   id: string
   x: number
   z: number
-  type: '+' | '-' | 'speed' | 'heal'
+  type: '+' | 'speed' | 'heal'
   vx: number
   vz: number
 }
