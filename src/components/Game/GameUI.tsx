@@ -29,6 +29,9 @@ export const GameUI = ({ status, score, hp, timeLeft, wave, sharedScores, damage
 
   // ゲームオーバー画面（ボタンなし、pointerEventsを無効化）
   if (status === 'gameover') {
+    const isTimeUp = timeLeft <= 0 && hp > 0
+    const title = isTimeUp ? 'TIME UP' : 'GAME OVER'
+
     let scoreList: ScoreEntry[] = []
     try {
       scoreList = JSON.parse(sharedScores || '[]')
@@ -55,7 +58,7 @@ export const GameUI = ({ status, score, hp, timeLeft, wave, sharedScores, damage
             pointerEvents: 'none',
           }}
         >
-          <h1 style={{ fontSize: '60px', marginBottom: '30px', color: '#ff4444' }}>GAME OVER</h1>
+          <h1 style={{ fontSize: '60px', marginBottom: '30px', color: '#ff4444' }}>{title}</h1>
           <div style={{ fontSize: '32px', marginBottom: '20px' }}>
             Score: <span style={{ color: '#FFD700', fontWeight: 'bold' }}>{score}</span>
           </div>

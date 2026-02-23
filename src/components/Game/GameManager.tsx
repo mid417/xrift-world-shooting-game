@@ -19,7 +19,7 @@ const GAME_CONFIG = {
   ITEM_SPEED: 1.8,            // アイテムの移動速度
   SHOT_INTERVAL: 0.3,
   INITIAL_HP: 5,
-  GAME_DURATION: 120,
+  GAME_DURATION: 300,
   OBJECT_Y: 0.4,
   COLLISION_DISTANCE: 0.6,     // 衝突判定距離
   PASS_THROUGH_THRESHOLD: 3,   // 通り過ぎ判定距離
@@ -35,7 +35,7 @@ const GAME_CONFIG = {
   MAX_ENEMIES_PER_SPAWN: 12,        // 1スポーンあたり最大敵数
   SPAWN_INTERVAL_MIN: 2.0,          // スポーン間隔の最小（秒）
   SPAWN_INTERVAL_INITIAL: 5.0,      // スポーン間隔の初期値（秒）
-  BULLET_SPEED_MULTIPLIERS: [1.0, 1.2, 1.4] as const,
+  BULLET_SPEED_MULTIPLIERS: [1.2, 1.4, 1.6, 1.8, 2.0] as const,
 } as const
 
 // 画面外座標（未使用インスタンス用）
@@ -172,7 +172,8 @@ export const GameManager = () => {
         console.warn('Failed to save score:', error)
       }
       stopBGM()
-      setUIState((prev) => ({ ...prev, status: 'gameover', timeLeft: 0 }))
+      const isTimeUp = newTimeLeft <= 0 && uiState.hp > 0
+      setUIState((prev) => ({ ...prev, status: 'gameover', timeLeft: isTimeUp ? 0 : newTimeLeft }))
       return
     }
 
@@ -426,7 +427,7 @@ export const GameManager = () => {
             patternChanged = true
           } else if (item.type === 'speed') {
             playPowerUp()
-            const currentIndex = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.indexOf(newSpeedMultiplier as 1.0 | 1.2 | 1.4)
+            const currentIndex = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.findIndex((m) => m === newSpeedMultiplier)
             if (currentIndex < GAME_CONFIG.BULLET_SPEED_MULTIPLIERS.length - 1) {
               newSpeedMultiplier = GAME_CONFIG.BULLET_SPEED_MULTIPLIERS[currentIndex + 1]
               speedMultiplierChanged = true

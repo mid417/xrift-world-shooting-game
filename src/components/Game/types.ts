@@ -92,5 +92,5 @@ export interface UIState {
   wave: number
   bulletPattern: BulletColumn[]
   damageTakenCount: number  // HP減少のたびにインクリメント、フラッシュトリガー用
-  bulletSpeedMultiplier: number  // 1.0 | 1.2 | 1.4
+  bulletSpeedMultiplier: number  // 1.0 | 1.2 | 1.4 | 1.6 | 1.8 | 2.0
 }
