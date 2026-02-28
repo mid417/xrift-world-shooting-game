@@ -9,10 +9,6 @@
       "name": "xrift-docs"
     },
     {
-      "path": "../xrift-world-components",
-      "name": "xrift-world-components"
-    },
-    {
       "path": "../xrift-world-template",
       "name": "xrift-world-templates"
     },
