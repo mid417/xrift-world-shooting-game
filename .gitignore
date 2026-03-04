@@ -18,6 +18,8 @@ dist
 # XRift
 .xrift
 
+.agents
+.github
 .serena
 tests
 test-results
