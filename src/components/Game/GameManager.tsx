@@ -137,6 +137,8 @@ export const GameManager = () => {
     spawnCountRef.current = 0
   }
 
+
+
   // ゲームループ
   useFrame((rfState, delta) => {
     if (uiState.status !== 'playing') return

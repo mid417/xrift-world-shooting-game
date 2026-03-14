@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Html } from '@react-three/drei'
 import type { GameStatus, ScoreEntry } from './types'
+import { useGameSound } from './useGameSound'
 
 interface GameUIProps {
   status: GameStatus
@@ -110,6 +111,13 @@ export const GameUI = ({
   speedMultiplier = 1
 }: GameUIProps) => {
   const [isFlashing, setIsFlashing] = useState(false)
+  const { playTimeup } = useGameSound()
+
+  useEffect(() => {
+    if (status === 'playing' && timeLeft >= 1 && Math.floor(timeLeft) <= 10) {
+      playTimeup()
+    }
+  }, [timeLeft, status, playTimeup])
 
   useEffect(() => {
     if (!damageTakenCount) return

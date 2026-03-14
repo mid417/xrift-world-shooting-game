@@ -23,3 +23,5 @@ dist
 .serena
 tests
 test-results
+.playwright-mcp
+

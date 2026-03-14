@@ -9,6 +9,7 @@ export const useGameSound = () => {
   const powerUpRef = useRef<HTMLAudioElement | null>(null)
   const damage00Ref = useRef<HTMLAudioElement | null>(null)
   const damage10Ref = useRef<HTMLAudioElement | null>(null)
+  const timeupRef = useRef<HTMLAudioElement | null>(null)
   const initializedRef = useRef(false)
 
   const init = useCallback(() => {
@@ -30,6 +31,9 @@ export const useGameSound = () => {
 
     damage10Ref.current = new Audio(`${baseUrl}Damage10.mp3`)
     damage10Ref.current.volume = 0.2
+
+    timeupRef.current = new Audio(`${baseUrl}timeup.mp3`)
+    timeupRef.current.volume = 0.3
   }, [baseUrl])
 
   const playBGM = useCallback(() => {
@@ -72,6 +76,14 @@ export const useGameSound = () => {
     }
   }, [])
 
+  const playTimeup = useCallback(() => {
+    init()
+    if (timeupRef.current) {
+      timeupRef.current.currentTime = 0
+      timeupRef.current.play().catch(() => {})
+    }
+  }, [init])
+
   // アンマウント時にBGMを停止
   useEffect(() => {
     return () => {
@@ -82,5 +94,5 @@ export const useGameSound = () => {
     }
   }, [])
 
-  return { playBGM, stopBGM, playShoot, playPowerUp, playDamage00, playDamage10 }
+  return { playBGM, stopBGM, playShoot, playPowerUp, playDamage00, playDamage10, playTimeup }
 }
