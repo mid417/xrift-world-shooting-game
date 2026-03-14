@@ -10,9 +10,105 @@ interface GameUIProps {
   wave: number
   sharedScores?: string
   damageTakenCount?: number
+  bulletCount?: number
+  speedMultiplier?: number
 }
 
-export const GameUI = ({ status, score, hp, timeLeft, wave, sharedScores, damageTakenCount }: GameUIProps) => {
+import { useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { Text } from '@react-three/drei'
+import * as THREE from 'three'
+
+interface PlayerHUDProps {
+  score: number
+  hp: number
+  timeLeft: number
+  wave: number
+  bulletCount: number
+  speedMultiplier: number
+}
+
+const offset = new THREE.Vector3(0, 0.4, -1.5)
+
+const PlayerHUD = ({ score, hp, timeLeft, wave, bulletCount, speedMultiplier }: PlayerHUDProps) => {
+  const hudRef = useRef<THREE.Group>(null)
+
+  useFrame((state) => {
+    if (!hudRef.current) return
+
+    // カメラの位置と回転を取得
+    const camera = state.camera
+
+    // HUDをカメラの少し前（Z=-1.5）、少し上（Y=0.4）に配置
+    hudRef.current.position.copy(offset)
+    hudRef.current.position.applyQuaternion(camera.quaternion)
+    
+    // カメラ位置にオフセットを足してHUD位置を決定
+    hudRef.current.position.add(camera.position)
+    
+    // 常にカメラを向くように回転を設定
+    hudRef.current.quaternion.copy(camera.quaternion)
+  })
+
+  // HPの描画
+  const hpString = Array.from({ length: hp }).map(() => '♥').join('')
+  
+  // 弾数の描画（最大5）
+  const bulletLv = Math.min(5, Math.max(0, bulletCount))
+  const bulletGauge = '■'.repeat(bulletLv) + '□'.repeat(5 - bulletLv)
+
+  // 速度の描画（初期値1.0=Lv1、最大3.0=Lv5）
+  const speedLv = Math.min(5, Math.max(1, Math.round((speedMultiplier - 1.0) / 0.5) + 1))
+  const speedGauge = '■'.repeat(speedLv) + '□'.repeat(5 - speedLv)
+
+  return (
+    <group ref={hudRef}>
+      {/* 半透明の背景パネル */}
+      <mesh position={[0, 0, -0.01]}>
+        <planeGeometry args={[1.2, 0.2]} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.4} />
+      </mesh>
+
+      {/* スコア・タイム・ウェーブ */}
+      <Text position={[-0.5, 0.05, 0]} fontSize={0.04} color="white" anchorX="left" anchorY="middle">
+        {`SCORE: ${score}`}
+      </Text>
+      <Text position={[0, 0.05, 0]} fontSize={0.04} color="white" anchorX="center" anchorY="middle">
+        {`TIME: ${timeLeft}s`}
+      </Text>
+      <Text position={[0.5, 0.05, 0]} fontSize={0.04} color="white" anchorX="right" anchorY="middle">
+        {`WAVE: ${wave}`}
+      </Text>
+
+      {/* HP・弾数・スピード */}
+      <Text position={[-0.5, -0.05, 0]} fontSize={0.032} color="#ff4444" anchorX="left" anchorY="middle">
+        {`HP: ${hpString}`}
+      </Text>
+
+      {/* 弾数 */}
+      <Text position={[0, -0.052, 0]} fontSize={0.038} color="#44ff44" anchorX="center" anchorY="middle">
+        {`弾数: ${bulletGauge}`}
+      </Text>
+
+      {/* スピード */}
+      <Text position={[0.5, -0.052, 0]} fontSize={0.038} color="#4488ff" anchorX="right" anchorY="middle">
+        {`弾速: ${speedGauge}`}
+      </Text>
+    </group>
+  )
+}
+
+export const GameUI = ({ 
+  status, 
+  score, 
+  hp, 
+  timeLeft, 
+  wave, 
+  sharedScores, 
+  damageTakenCount,
+  bulletCount = 1,
+  speedMultiplier = 1
+}: GameUIProps) => {
   const [isFlashing, setIsFlashing] = useState(false)
 
   useEffect(() => {
@@ -105,68 +201,40 @@ export const GameUI = ({ status, score, hp, timeLeft, wave, sharedScores, damage
 
   // プレイ中のHUD
   return (
-    <Html fullscreen style={{ pointerEvents: 'none' }}>
+    <>
+      {/* ダメージ演出（画面全体） */}
       {isFlashing && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            backgroundColor: 'rgba(255, 0, 0, 0.35)',
-            pointerEvents: 'none',
-            animation: 'damageFlash 0.6s ease-out forwards',
-          }}
-        />
+        <Html fullscreen style={{ pointerEvents: 'none' }}>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(255, 0, 0, 0.35)',
+              pointerEvents: 'none',
+              animation: 'damageFlash 0.6s ease-out forwards',
+            }}
+          />
+          <style>{`
+            @keyframes damageFlash {
+              0% { opacity: 1; }
+              100% { opacity: 0; }
+            }
+          `}</style>
+        </Html>
       )}
 
-      {isFlashing && (
-        <style>{`
-          @keyframes damageFlash {
-            0% { opacity: 1; }
-            100% { opacity: 0; }
-          }
-        `}</style>
-      )}
-
-      <style>{`
-        .game-hud {
-          top: 20px;
-        }
-
-        @supports (top: env(safe-area-inset-top, 0px)) {
-          .game-hud {
-            top: calc(20px + env(safe-area-inset-top, 0px));
-          }
-        }
-      `}</style>
-      <div
-        className="game-hud"
-        style={{
-          position: 'fixed',
-          left: '50%',
-          zIndex: 0,
-          transform: 'translateX(-50%)',
-          display: 'flex',
-          gap: '30px',
-          color: 'white',
-          fontFamily: 'Arial, sans-serif',
-          fontSize: '20px',
-          fontWeight: 'bold',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-          pointerEvents: 'none',
-        }}
-      >
-        <div>Score: {score}</div>
-        <div>
-          HP: {Array.from({ length: hp }).map((_, i) => (
-            <span key={i} style={{ color: '#ff4444' }}>♥</span>
-          ))}
-        </div>
-        <div>Time: {timeLeft}s</div>
-        <div>Wave: {wave}</div>
-      </div>
-    </Html>
+      {/* 3Dカメラ追従HUD */}
+      <PlayerHUD
+        score={score}
+        hp={hp}
+        timeLeft={timeLeft}
+        wave={wave}
+        bulletCount={bulletCount}
+        speedMultiplier={speedMultiplier}
+      />
+    </>
   )
 }

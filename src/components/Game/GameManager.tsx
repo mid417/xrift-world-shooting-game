@@ -36,7 +36,7 @@ const GAME_CONFIG = {
   MAX_ENEMIES_PER_SPAWN: 12,        // 1スポーンあたり最大敵数
   SPAWN_INTERVAL_MIN: 2.0,          // スポーン間隔の最小（秒）
   SPAWN_INTERVAL_INITIAL: 5.0,      // スポーン間隔の初期値（秒）
-  BULLET_SPEED_MULTIPLIERS: [1.2, 1.4, 1.6, 1.8, 2.0] as const,
+  BULLET_SPEED_MULTIPLIERS: [1.5, 2.0, 2.5, 3.0] as const,
 } as const
 
 // 画面外座標（未使用インスタンス用）
@@ -717,6 +717,8 @@ export const GameManager = () => {
         wave={uiState.wave}
         sharedScores={sharedScores}
         damageTakenCount={uiState.damageTakenCount}
+        bulletCount={uiState.bulletPattern.length}
+        speedMultiplier={uiState.bulletSpeedMultiplier}
       />
 
       {/* スタート画面の3D立て看板 */}
