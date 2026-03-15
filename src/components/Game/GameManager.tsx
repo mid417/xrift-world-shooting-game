@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useInstanceState, useUsers, Interactable } from '@xrift/world-components'
 import type { GameState, UIState, ScoreEntry, ChainLabel, Item } from './types'
 import { addBulletColumn, getBulletXOffsets } from './bulletPattern'
@@ -42,6 +43,44 @@ const GAME_CONFIG = {
 // 画面外座標（未使用インスタンス用）
 const OFF_SCREEN_POS = new THREE.Vector3(0, -1000, 0)
 
+const createEnemyPlaneGeometry = () => {
+  // 正面シルエットがHに見えるローポリ戦闘機
+  const centerBody = new THREE.BoxGeometry(0.14, 0.14, 1.0)
+  centerBody.translate(0, 0, 0.02)
+
+  const leftPod = new THREE.BoxGeometry(0.16, 0.46, 0.72)
+  leftPod.translate(-0.34, 0, 0.05)
+
+  const rightPod = new THREE.BoxGeometry(0.16, 0.46, 0.72)
+  rightPod.translate(0.34, 0, 0.05)
+
+  const centerBridge = new THREE.BoxGeometry(0.74, 0.1, 0.44)
+  centerBridge.translate(0, 0, 0.08)
+
+  const nose = new THREE.ConeGeometry(0.13, 0.34, 3)
+  nose.rotateX(Math.PI / 2)
+  nose.translate(0, 0, 0.68)
+
+  const tail = new THREE.BoxGeometry(0.44, 0.08, 0.26)
+  tail.translate(0, 0, -0.42)
+
+  const parts = [centerBody, leftPod, rightPod, centerBridge, nose, tail]
+  const merged = BufferGeometryUtils.mergeGeometries(parts, false)
+  parts.forEach((geometry) => geometry.dispose())
+
+  if (!merged) {
+    return new THREE.BoxGeometry(0.8, 0.5, 0.8)
+  }
+
+  merged.computeVertexNormals()
+  return merged
+}
+
+const ENEMY_PLANE_GEOMETRY = createEnemyPlaneGeometry()
+const ENEMY_COCKPIT_GEOMETRY = new THREE.BoxGeometry(0.18, 0.1, 0.18)
+ENEMY_COCKPIT_GEOMETRY.translate(0, 0.08, 0.36)
+const ENEMY_FORWARD_AXIS = new THREE.Vector3(0, 0, 1)
+
 export const GameManager = () => {
   // useInstanceState と useUsers（トップレベルで呼び出す）
   const { localUser } = useUsers()
@@ -53,6 +92,7 @@ export const GameManager = () => {
   // InstancedMesh の参照
   const bulletMeshRef = useRef<THREE.InstancedMesh>(null)
   const enemyMeshRef = useRef<THREE.InstancedMesh>(null)
+  const enemyCockpitMeshRef = useRef<THREE.InstancedMesh>(null)
   const itemPlusMeshRef = useRef<THREE.InstancedMesh>(null)
   const itemSpeedMeshRef = useRef<THREE.InstancedMesh>(null)
   const itemHealMeshRef = useRef<THREE.InstancedMesh>(null)
@@ -64,6 +104,10 @@ export const GameManager = () => {
   const posVecRef = useRef(new THREE.Vector3())
   const quatRef = useRef(new THREE.Quaternion())
   const scaleVecRef = useRef(new THREE.Vector3())
+  const enemyPosRef = useRef(new THREE.Vector3())
+  const enemyQuatRef = useRef(new THREE.Quaternion())
+  const enemyScaleRef = useRef(new THREE.Vector3(1, 1, 1))
+  const enemyDirRef = useRef(new THREE.Vector3())
 
   // ゲーム状態(useRef: 高頻度更新、レンダリング不要)
   const gameState = useRef<GameState>({
@@ -192,6 +236,14 @@ export const GameManager = () => {
       }
       if (enemyMeshRef.current) {
         const mesh = enemyMeshRef.current
+        for (let i = 0; i < GAME_CONFIG.MAX_ENEMIES; i++) {
+          matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
+          mesh.setMatrixAt(i, matrix)
+        }
+        mesh.instanceMatrix.needsUpdate = true
+      }
+      if (enemyCockpitMeshRef.current) {
+        const mesh = enemyCockpitMeshRef.current
         for (let i = 0; i < GAME_CONFIG.MAX_ENEMIES; i++) {
           matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
           mesh.setMatrixAt(i, matrix)
@@ -603,18 +655,42 @@ export const GameManager = () => {
     }
 
     // 敵の描画更新
-    if (enemyMeshRef.current) {
-      const mesh = enemyMeshRef.current
+    if (enemyMeshRef.current || enemyCockpitMeshRef.current) {
+      const enemyMesh = enemyMeshRef.current
+      const cockpitMesh = enemyCockpitMeshRef.current
+      const enemyPos = enemyPosRef.current
+      const enemyQuat = enemyQuatRef.current
+      const enemyScale = enemyScaleRef.current
+      const enemyDir = enemyDirRef.current
+
       for (let i = 0; i < GAME_CONFIG.MAX_ENEMIES; i++) {
         if (i < state.enemies.length) {
           const enemy = state.enemies[i]
-          matrix.setPosition(enemy.x, GAME_CONFIG.OBJECT_Y, enemy.z)
+          enemyPos.set(enemy.x, GAME_CONFIG.OBJECT_Y, enemy.z)
+          enemyDir.set(enemy.vx, 0, enemy.vz)
+          if (enemyDir.lengthSq() > 1e-6) {
+            enemyDir.normalize()
+            enemyQuat.setFromUnitVectors(ENEMY_FORWARD_AXIS, enemyDir)
+          } else {
+            enemyQuat.identity()
+          }
+          matrix.compose(enemyPos, enemyQuat, enemyScale)
         } else {
           matrix.setPosition(OFF_SCREEN_POS.x, OFF_SCREEN_POS.y, OFF_SCREEN_POS.z)
         }
-        mesh.setMatrixAt(i, matrix)
+        if (enemyMesh) {
+          enemyMesh.setMatrixAt(i, matrix)
+        }
+        if (cockpitMesh) {
+          cockpitMesh.setMatrixAt(i, matrix)
+        }
       }
-      mesh.instanceMatrix.needsUpdate = true
+      if (enemyMesh) {
+        enemyMesh.instanceMatrix.needsUpdate = true
+      }
+      if (cockpitMesh) {
+        cockpitMesh.instanceMatrix.needsUpdate = true
+      }
     }
 
     // アイテムの描画更新（単一パスで各タイプのInstancedMeshを更新）
@@ -784,8 +860,14 @@ export const GameManager = () => {
 
       {/* 敵(InstancedMesh) */}
       <instancedMesh ref={enemyMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ENEMIES]} frustumCulled={false}>
-        <boxGeometry args={[0.8, 0.5, 0.8]} />
+        <primitive object={ENEMY_PLANE_GEOMETRY} attach="geometry" />
         <meshStandardMaterial color="#ff4444" />
+      </instancedMesh>
+
+      {/* 敵コクピット(InstancedMesh) */}
+      <instancedMesh ref={enemyCockpitMeshRef} args={[undefined, undefined, GAME_CONFIG.MAX_ENEMIES]} frustumCulled={false}>
+        <primitive object={ENEMY_COCKPIT_GEOMETRY} attach="geometry" />
+        <meshStandardMaterial color="#44aaff" emissive="#1b5da5" emissiveIntensity={0.4} />
       </instancedMesh>
 
       {/* アイテム(+タイプ、緑) */}
@@ -824,7 +906,7 @@ export const GameManager = () => {
           anchorY="middle"
           outlineWidth={0}
         >
-          {item.type === 'speed' ? '↑' : item.type === 'heal' ? '♥' : item.type}
+          {item.type === 'speed' ? 's-up' : item.type === 'heal' ? '♥' : item.type}
         </Text>
       ))}
 
