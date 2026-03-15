@@ -906,7 +906,7 @@ export const GameManager = () => {
           anchorY="middle"
           outlineWidth={0}
         >
-          {item.type === 'speed' ? 's-up' : item.type === 'heal' ? '♥' : item.type}
+          {item.type === 'speed' ? 'SP' : item.type === 'heal' ? '♥' : item.type}
         </Text>
       ))}
 
